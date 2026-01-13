@@ -4,6 +4,21 @@ const MIN_CELL_SIZE = 3;
 let gridSize = 100;
 let cellSize = 6;
 
+// Display colors based on dominant genetic value
+const COLORS = {
+    0: '#ff4444', // Red (first gene dominant)
+    1: '#44ff44', // Green (second gene dominant)
+    2: '#4444ff'  // Blue (third gene dominant)
+};
+
+// Get display color based on dominant genetic value
+function cellToColor(cell) {
+    let maxIndex = 0;
+    if (cell.genes[1] >= cell.genes[0] && cell.genes[1] >= cell.genes[2]) maxIndex = 1;
+    else if (cell.genes[2] >= cell.genes[0] && cell.genes[2] >= cell.genes[1]) maxIndex = 2;
+    return COLORS[maxIndex];
+}
+
 // Game state
 let grid = [];
 let initialState = [];
@@ -29,7 +44,6 @@ const applySizeBtn = document.getElementById('applySizeBtn');
 
 // Calculate cell size based on grid size
 function calculateCellSize() {
-    // Keep cells at minimum visible size, let canvas grow larger
     cellSize = MIN_CELL_SIZE;
 }
 
@@ -43,23 +57,42 @@ function updateCanvasSize() {
 // Initialize canvas
 updateCanvasSize();
 
+// Create a dead cell (null)
+function createDeadCell() {
+    return null;
+}
+
+// Create a live cell with three random genetic values
+function createLiveCell() {
+    return {
+        genes: [Math.random() * 100, Math.random() * 100, Math.random() * 100]
+    };
+}
+
 // Create empty grid
 function createEmptyGrid() {
     const newGrid = [];
     for (let i = 0; i < gridSize; i++) {
         newGrid[i] = [];
         for (let j = 0; j < gridSize; j++) {
-            newGrid[i][j] = 0;
+            newGrid[i][j] = createDeadCell();
         }
     }
     return newGrid;
 }
 
-// Copy grid
+// Deep copy grid
 function copyGrid(source) {
     const newGrid = [];
     for (let i = 0; i < gridSize; i++) {
-        newGrid[i] = [...source[i]];
+        newGrid[i] = [];
+        for (let j = 0; j < gridSize; j++) {
+            if (source[i][j]) {
+                newGrid[i][j] = { genes: [...source[i][j].genes] };
+            } else {
+                newGrid[i][j] = null;
+            }
+        }
     }
     return newGrid;
 }
@@ -73,18 +106,30 @@ function init() {
     draw();
 }
 
-// Count neighbors
-function countNeighbors(x, y) {
-    let count = 0;
+// Get all living neighbors
+function getLivingNeighbors(x, y) {
+    const neighbors = [];
     for (let i = -1; i <= 1; i++) {
         for (let j = -1; j <= 1; j++) {
             if (i === 0 && j === 0) continue;
             const nx = (x + i + gridSize) % gridSize;
             const ny = (y + j + gridSize) % gridSize;
-            count += grid[nx][ny];
+            if (grid[nx][ny]) {
+                neighbors.push(grid[nx][ny]);
+            }
         }
     }
-    return count;
+    return neighbors;
+}
+
+// Create a new cell from exactly 3 parent neighbors
+// Each parent contributes one randomly selected gene from their genes array
+function createChildCell(parents) {
+    const genes = parents.map(parent => {
+        const choice = Math.floor(Math.random() * 3);
+        return parent.genes[choice];
+    });
+    return { genes };
 }
 
 // Compute next generation
@@ -93,15 +138,20 @@ function nextGeneration() {
 
     for (let i = 0; i < gridSize; i++) {
         for (let j = 0; j < gridSize; j++) {
-            const neighbors = countNeighbors(i, j);
+            const neighbors = getLivingNeighbors(i, j);
+            const neighborCount = neighbors.length;
             const cell = grid[i][j];
 
-            if (cell === 1) {
+            if (cell) {
                 // Live cell with 2 or 3 neighbors survives
-                newGrid[i][j] = (neighbors === 2 || neighbors === 3) ? 1 : 0;
+                if (neighborCount === 2 || neighborCount === 3) {
+                    newGrid[i][j] = { genes: [...cell.genes] };
+                }
             } else {
                 // Dead cell with exactly 3 neighbors becomes alive
-                newGrid[i][j] = (neighbors === 3) ? 1 : 0;
+                if (neighborCount === 3) {
+                    newGrid[i][j] = createChildCell(neighbors);
+                }
             }
         }
     }
@@ -125,10 +175,11 @@ function draw() {
     ctx.fillRect(0, 0, canvasSize, canvasSize);
 
     // Draw cells
-    ctx.fillStyle = '#00d4ff';
     for (let i = 0; i < gridSize; i++) {
         for (let j = 0; j < gridSize; j++) {
-            if (grid[i][j] === 1) {
+            const cell = grid[i][j];
+            if (cell) {
+                ctx.fillStyle = cellToColor(cell);
                 ctx.fillRect(
                     i * cellSize + 1,
                     j * cellSize + 1,
@@ -140,7 +191,7 @@ function draw() {
     }
 
     // Draw grid lines (only if cells are large enough)
-    if (cellSize >= 3) {
+    if (cellSize >= 4) {
         ctx.strokeStyle = '#2a2a4a';
         ctx.lineWidth = 0.5;
         for (let i = 0; i <= gridSize; i++) {
@@ -167,7 +218,6 @@ function gameLoop() {
 function play() {
     if (isRunning) return;
     isRunning = true;
-    // Save initial state when first starting
     if (generation === 0) {
         initialState = copyGrid(grid);
     }
@@ -207,7 +257,7 @@ function randomize() {
     pause();
     for (let i = 0; i < gridSize; i++) {
         for (let j = 0; j < gridSize; j++) {
-            grid[i][j] = Math.random() < 0.3 ? 1 : 0;
+            grid[i][j] = Math.random() < 0.3 ? createLiveCell() : createDeadCell();
         }
     }
     initialState = copyGrid(grid);
@@ -230,7 +280,6 @@ function updateSpeed(newSpeed) {
 function applyGridSize() {
     let newSize = parseInt(gridSizeInput.value);
 
-    // Clamp to valid range
     if (isNaN(newSize) || newSize < 10) newSize = 10;
     if (newSize > MAX_GRID_SIZE) newSize = MAX_GRID_SIZE;
 
@@ -254,7 +303,7 @@ function updateGridSizeDisplay() {
 
 // Handle canvas drag for drawing
 let isDrawing = false;
-let drawMode = 1;
+let drawMode = 1; // 1 = create cells, 0 = delete cells
 
 canvas.addEventListener('mousedown', (event) => {
     const rect = canvas.getBoundingClientRect();
@@ -264,7 +313,7 @@ canvas.addEventListener('mousedown', (event) => {
     if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
         isDrawing = true;
         drawMode = grid[x][y] ? 0 : 1;
-        grid[x][y] = drawMode;
+        grid[x][y] = drawMode ? createLiveCell() : createDeadCell();
         draw();
     }
 });
@@ -277,7 +326,7 @@ canvas.addEventListener('mousemove', (event) => {
     const y = Math.floor((event.clientY - rect.top) / cellSize);
 
     if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
-        grid[x][y] = drawMode;
+        grid[x][y] = drawMode ? createLiveCell() : createDeadCell();
         draw();
     }
 });
